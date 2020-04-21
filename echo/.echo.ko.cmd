@@ -1,0 +1,1 @@
+cmd_/home/jason/Documents/kernel-module-fun/echo/echo.ko := ld -r -m elf_x86_64  -z max-page-size=0x200000 -T ./scripts/module-common.lds  --build-id  -o /home/jason/Documents/kernel-module-fun/echo/echo.ko /home/jason/Documents/kernel-module-fun/echo/echo.o /home/jason/Documents/kernel-module-fun/echo/echo.mod.o ;  true
