@@ -16,7 +16,7 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jason");
 
 #define FILENAME "echo"
-#define MAX_SIZE 128
+#define BUF_SIZE 128
 
 static LIST_HEAD(head);
 
@@ -25,7 +25,7 @@ static LIST_HEAD(head);
  */
 struct user_info {
 	int pid;		// The current process id
-	char buf[MAX_SIZE];	// Stores the user message
+	char buf[BUF_SIZE];	// Stores the user message
 	size_t size;		// Size of the user message
 	struct list_head list;	// List of processes that wrote to /proc/echo
 };
@@ -39,7 +39,7 @@ static ssize_t echo_write(struct file *filp, const char __user *ubuf, size_t cou
 	struct user_info *ui;
 
 	/* Never trust user input */
-	if (count < 0 || count > MAX_SIZE) {
+	if (count < 0 || count > BUF_SIZE) {
 		printk(KERN_ALERT "echo_write: invalid buffer size: %zd\n", count);
 		return -EFAULT;
 	}
@@ -74,30 +74,37 @@ static ssize_t echo_write(struct file *filp, const char __user *ubuf, size_t cou
  // TODO fix endless loop on reading empty file!
 static ssize_t echo_read(struct file *filp, char __user *ubuf, size_t count, loff_t *ppos)
 {
-	struct user_info *ui;
+	struct user_info *ui, *next;
+	size_t len, bytes_read = 0;
 
-	/* A non-zero data value means we've successfully read from the file.
-	 * Return 0 to indicate EOF. Otherwise, processess will loop forever. */
-	if ((int) *ppos > 0)
+	printk(KERN_SOH "Starting at offset %lld, read %zd bytes", *ppos,
+	count);
+
+	/* A non-zero return value means we've successfully read from the file.
+	 * Return zero to indicate EOF so program doesn't loop forever. */
+	if (*ppos > 0)
 		return 0;
 
-	// TODO need to add concurrency primitives
 	/* For each entry written to /proc/echo, display the pid, message, and
 	 * length. */
-	list_for_each_entry(ui, &head, list) {
-		char buf[200];
+	// TODO add lock
+	list_for_each_entry_safe(ui, next, &head, list) {
+		char buf[BUF_SIZE + 20];
 
 		sprintf(buf, "%d: %s (%zd bytes)\n", ui->pid, ui->buf, ui->size);
 
-		if (copy_to_user(ubuf + *ppos, buf, strlen(buf) + 1)) {
+		len = strlen(buf) + 1;
+
+		if (copy_to_user(ubuf + *ppos, buf, len)) {
 			printk(KERN_ALERT "copy_to_user failed\n");
 			return -EFAULT;
 		}
 
-		*ppos += sizeof(buf);
+		bytes_read += len;
+		*ppos += bytes_read;
 	}
 
-	return count - *ppos;
+	return bytes_read;
 }
 
 static const struct file_operations echo_ops = {
