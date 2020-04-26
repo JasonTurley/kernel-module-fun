@@ -6,11 +6,12 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 
-#include <linux/slab.h>		// for kmalloc, kfree
 #include <linux/fs.h>		// for basic filesystem
-#include <linux/proc_fs.h>	// for the proc filesystem
-#include <linux/uaccess.h>	// for copy_from/to_user
 #include <linux/list.h>
+#include <linux/proc_fs.h>	// for the proc filesystem
+#include <linux/spinlock.h>
+#include <linux/slab.h>		// for kmalloc, kfree
+#include <linux/uaccess.h>	// for copy_from/to_user
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jason");
@@ -29,6 +30,9 @@ struct user_info {
 	size_t size;		// Size of the user message
 	struct list_head list;	// List of processes that wrote to /proc/echo
 };
+
+/* Global lock for safely accessing shared list data structure */
+static spinlock_t my_lock;
 
 /*
  * Called when a process writes to the /proc/echo file. Records the pid, line of
@@ -57,12 +61,15 @@ static ssize_t echo_write(struct file *filp, const char __user *ubuf, size_t cou
 		return -EFAULT;
 	}
 
-	/* TODO should this be a function? */
+	/* Initialize structure fields */
 	ui->pid = current->pid;
 	ui->buf[count-1] = '\0';
 	ui->size = count;
 
+	/* Protect critical section */
+	spin_lock(&my_lock);
 	list_add_tail(&(ui->list), &head);
+	spin_unlock(&my_lock);
 
 	return count;
 }
@@ -87,7 +94,7 @@ static ssize_t echo_read(struct file *filp, char __user *ubuf, size_t count, lof
 
 	/* For each entry written to /proc/echo, display the pid, message, and
 	 * length. */
-	// TODO add lock
+	spin_lock(&my_lock);
 	list_for_each_entry_safe(ui, next, &head, list) {
 		char buf[BUF_SIZE + 20];
 
@@ -97,12 +104,14 @@ static ssize_t echo_read(struct file *filp, char __user *ubuf, size_t count, lof
 
 		if (copy_to_user(ubuf + *ppos, buf, len)) {
 			printk(KERN_ALERT "copy_to_user failed\n");
+			spin_unlock(&my_lock);
 			return -EFAULT;
 		}
 
 		bytes_read += len;
 		*ppos += bytes_read;
 	}
+	spin_unlock(&my_lock);
 
 	return bytes_read;
 }
@@ -115,6 +124,8 @@ static const struct file_operations echo_ops = {
 
 static int __init echo_init(void)
 {
+	spin_lock_init(&my_lock);
+
 	if (!proc_create(FILENAME, 0666, NULL, &echo_ops)) {
 		printk(KERN_ALERT "proc_create: failed to open %s\n", FILENAME);
 		return -ENOMEM;
