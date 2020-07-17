@@ -13,3 +13,25 @@ I took an operating systems course in university, where all the assignments were
 ```simple:``` prints a message when it is loaded/unloaded to/from the kernel
 
 ```tutorials:``` sample code from tutorials I have read
+
+## Compiling the modules
+To compile the modules, simply run
+```
+make
+```
+
+## Using the modules
+Load the module into the kernel
+```
+sudo insmod simple.ko
+```
+
+Check for the message "LOADED MODULE"
+```
+dmesg | tail -10
+```
+
+Remove the module from the kernel when finished
+```
+sudo rmmod simple
+```
